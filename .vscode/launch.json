@@ -1,0 +1,29 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Runs Pytests, but you may want to consider using the Python testing extension
+            // https://code.visualstudio.com/docs/python/testing
+            "name": "Python: Pytest",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/vscode/.local/share/virtualenvs/email-m4o2-BVB/bin/pytest",
+            "cwd": "${workspaceFolder}/email",
+            "env": {
+                "FLASK_ENV": "testing",
+            },
+            "justMyCode": false,
+            "args": [
+                // Returns full diffs in the output
+                "-vv"
+                , "--maxfail=100"
+                // Optionally add individual files to test.
+                , "tests/functional_test.py"
+            ],
+            "console": "integratedTerminal"
+        },
+    ]
+}
