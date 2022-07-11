@@ -51,7 +51,7 @@ class EmailMessage(Aggregate):
         self.status = "ERRORED"
         self.error_message = error_message
 
-class EmailApp(Application):
+class EmailApp(ProcessApplication):
     def send_email(self, to: str, from_: str, subject: str, body: str):
         email_message = EmailMessage(to=to, from_=from_, subject=subject, body=body)
         self.save(email_message)
@@ -60,17 +60,6 @@ class EmailApp(Application):
     def get_email_message(self, id: UUID) -> EmailMessage:
         return self.repository.get(id)
 
-class EmailClient:
-    def send_email(email_message: EmailMessage):
-        return {
-            "id": "ae55bc81-cafb-42d6-9c9f-2eb7cda6e528"
-        }
-    def get_send_email_status(self, id: UUID):
-        return {
-            "status": "SENT"
-        }
-
-class EmailProcessor(ProcessApplication):
     @singledispatchmethod
     def policy(self, domain_event, process_event):
         pass
@@ -78,7 +67,7 @@ class EmailProcessor(ProcessApplication):
     @policy.register(EmailMessage.Initiated)
     def _(self, domain_event: EmailMessage.Initiated, process_event: ProcessEvent):
         email_message = self.repository.get(domain_event.originator_id)
-        self.send_email(email_message)
+        self._send_email(email_message)
         process_event.collect_events(*email_message.collect_events())
 
     @policy.register(EmailMessage.Sending)
@@ -98,7 +87,7 @@ class EmailProcessor(ProcessApplication):
 
         process_event.collect_events(*email_message.collect_events())
 
-    def send_email(self, email_message: EmailMessage):
+    def _send_email(self, email_message: EmailMessage):
         self._email_client: EmailClient = self.env["EMAIL_CLIENT"]
         try:
             result = self._email_client.send_email()
@@ -106,6 +95,16 @@ class EmailProcessor(ProcessApplication):
         except Exception as e:
             email_message.email_errored(str(e))
 
+
+class EmailClient:
+    def send_email(email_message: EmailMessage):
+        return {
+            "id": "ae55bc81-cafb-42d6-9c9f-2eb7cda6e528"
+        }
+    def get_send_email_status(self, id: UUID):
+        return {
+            "status": "SENT"
+        }
 
 ###############
 # Web App Logic
@@ -115,12 +114,13 @@ def start_event_sourcing_system() -> Runner:
     import os
     environ = Environment()
     environ["PERSISTENCE_MODULE"] = os.environ.get("EVENTSOURCING_PERSISTENCE_MODULE", "eventsourcing.sqlite")
-    environ["SQLITE_DBNAME"] = "file::memory:?mode=memory&cache=shared"
+    environ["SQLITE_DBNAME"] = ":memory:"
+    # environ["SQLITE_DBNAME"] = "file::memory:?mode=memory&cache=shared"
     environ["SQLITE_LOCK_TIMEOUT"] = "10"
     environ["EMAIL_CLIENT"] = EmailClient()
 
     system = System([
-        [EmailApp, EmailProcessor],
+        [EmailApp, EmailApp],
     ])
     runner = MultiThreadedRunner(system=system, env=environ)
     runner.start()

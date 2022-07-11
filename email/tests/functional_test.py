@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from flask.testing import FlaskClient
 
-from app import EmailProcessor, Runner
+from app import EmailApp, Runner
 
 # Uncomment to see the difference in behavior
 # import os
@@ -58,7 +58,7 @@ class TestWebApp:
         from uuid import UUID
         stub_create_email_message_id.return_value = UUID("8f86530e-4fcc-4544-b493-684faa626c70")
 
-        email_client = event_sourcing_runner.get(EmailProcessor).env["EMAIL_CLIENT"]
+        email_client = event_sourcing_runner.get(EmailApp).env["EMAIL_CLIENT"]
         email_client.get_send_email_status = lambda id: {
             "status": "ERRORED",
             "error_message": "BOOM!!"
