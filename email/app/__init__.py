@@ -21,7 +21,7 @@ class EmailMessage(Aggregate):
         body: str
 
     class Sending(AggregateEvent):
-        pass
+        client_id: str
 
     class Sent(AggregateEvent):
         pass
@@ -36,6 +36,11 @@ class EmailMessage(Aggregate):
         self.body = body
         self.status = "INITIATED"
         self.error_message = None
+
+    @event(Sending)
+    def email_sending(self, client_id: str):
+        self.status = "SENDING"
+        self.client_id = client_id
 
     @event(Sent)
     def email_sent(self):
@@ -57,10 +62,13 @@ class EmailApp(Application):
 
 class EmailClient:
     def send_email(email_message: EmailMessage):
-        pass
-
+        return {
+            "id": "ae55bc81-cafb-42d6-9c9f-2eb7cda6e528"
+        }
     def get_send_email_status(self, id: UUID):
-        pass
+        return {
+            "status": "SENT"
+        }
 
 class EmailProcessor(ProcessApplication):
     @singledispatchmethod
@@ -73,11 +81,28 @@ class EmailProcessor(ProcessApplication):
         self.send_email(email_message)
         process_event.collect_events(*email_message.collect_events())
 
+    @policy.register(EmailMessage.Sending)
+    def _(self, domain_event: EmailMessage.Sending, process_event: ProcessEvent):
+        email_message = self.repository.get(domain_event.originator_id)
+        self._email_client: EmailClient = self.env["EMAIL_CLIENT"]
+        try:
+            email_status = self._email_client.get_send_email_status(email_message.client_id)
+            if email_status["status"] == "SENT":
+                email_message.email_sent()
+            elif email_status["status"] == "ERRORED":
+                email_message.email_errored(email_status["error_message"])
+            else:
+                email_message.email_errored("UNKNOWN")
+        except Exception as e:
+            email_message.email_errored(str(e))
+
+        process_event.collect_events(*email_message.collect_events())
+
     def send_email(self, email_message: EmailMessage):
         self._email_client: EmailClient = self.env["EMAIL_CLIENT"]
         try:
-            self._email_client.send_email()
-            email_message.email_sent()
+            result = self._email_client.send_email()
+            email_message.email_sending(result["id"])
         except Exception as e:
             email_message.email_errored(str(e))
 
