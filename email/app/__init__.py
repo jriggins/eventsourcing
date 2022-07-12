@@ -94,6 +94,7 @@ class EmailApp(ProcessApplication):
             email_message.email_sending(result["id"])
         except Exception as e:
             email_message.email_errored(str(e))
+
 class EmailClient:
     def send_email(email_message: EmailMessage):
         return {
