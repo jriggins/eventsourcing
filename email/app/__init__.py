@@ -94,8 +94,6 @@ class EmailApp(ProcessApplication):
             email_message.email_sending(result["id"])
         except Exception as e:
             email_message.email_errored(str(e))
-
-
 class EmailClient:
     def send_email(email_message: EmailMessage):
         return {
@@ -114,8 +112,8 @@ def start_event_sourcing_system() -> Runner:
     import os
     environ = Environment()
     environ["PERSISTENCE_MODULE"] = os.environ.get("EVENTSOURCING_PERSISTENCE_MODULE", "eventsourcing.sqlite")
+    # environ["PERSISTENCE_MODULE"] = "eventsourcing.popo"
     environ["SQLITE_DBNAME"] = ":memory:"
-    # environ["SQLITE_DBNAME"] = "file::memory:?mode=memory&cache=shared"
     environ["SQLITE_LOCK_TIMEOUT"] = "10"
     environ["EMAIL_CLIENT"] = EmailClient()
 
