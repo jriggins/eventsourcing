@@ -1,0 +1,10 @@
+{
+    "python.pipenvPath": "pipenv",
+    "python.analysis.indexing": true,
+    "python.analysis.extraPaths": [
+        "/home/vscode/.local/share/virtualenvs/email-m4o2-BVB/lib/python3.10/site-packages"
+    ],
+    "python.defaultInterpreterPath": "/home/vscode/.local/share/virtualenvs/email-m4o2-BVB/bin/python",
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": false,
+}
