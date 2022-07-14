@@ -31,3 +31,7 @@ def test_client(flask_app: Flask) -> FlaskClient:
 @pytest.fixture()
 def event_sourcing_runner(apps) -> Runner:
     return apps["event_sourcing_runner"]
+
+@pytest.fixture()
+def email_app(apps) -> Runner:
+    return apps["email_app"]

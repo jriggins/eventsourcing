@@ -1,9 +1,9 @@
 from distutils.log import error
 from functools import singledispatchmethod
-from typing import Tuple
-from uuid import UUID
+from typing import Any, Optional, Set, Tuple
+from uuid import UUID, uuid4, uuid5
 
-from eventsourcing.application import Application
+from eventsourcing.application import Application, AggregateNotFound
 from eventsourcing.domain import Aggregate, AggregateEvent, event
 from eventsourcing.system import ProcessApplication, System, MultiThreadedRunner, ProcessEvent, Runner
 from eventsourcing.utils import Environment
@@ -68,7 +68,8 @@ class EmailApp(ProcessApplication):
     def _(self, domain_event: EmailMessage.Initiated, process_event: ProcessEvent):
         email_message = self.repository.get(domain_event.originator_id)
         self._send_email(email_message)
-        process_event.collect_events(*email_message.collect_events())
+        # process_event.collect_events(*email_message.collect_events())
+        self.save(email_message)
 
     @policy.register(EmailMessage.Sending)
     def _(self, domain_event: EmailMessage.Sending, process_event: ProcessEvent):
@@ -76,16 +77,18 @@ class EmailApp(ProcessApplication):
         self._email_client: EmailClient = self.env["EMAIL_CLIENT"]
         try:
             email_status = self._email_client.get_send_email_status(email_message.client_id)
-            if email_status["status"] == "SENT":
-                email_message.email_sent()
-            elif email_status["status"] == "ERRORED":
-                email_message.email_errored(email_status["error_message"])
-            else:
-                email_message.email_errored("UNKNOWN")
+            if not email_status["status"] == "SENDING":
+                if email_status["status"] == "SENT":
+                    email_message.email_sent()
+                elif email_status["status"] == "ERRORED":
+                    email_message.email_errored(email_status["error_message"])
+                else:
+                    email_message.email_errored("UNKNOWN")
         except Exception as e:
             email_message.email_errored(str(e))
 
-        process_event.collect_events(*email_message.collect_events())
+        # process_event.collect_events(*email_message.collect_events())
+        self.save(email_message)
 
     def _send_email(self, email_message: EmailMessage):
         self._email_client: EmailClient = self.env["EMAIL_CLIENT"]
@@ -94,6 +97,46 @@ class EmailApp(ProcessApplication):
             email_message.email_sending(result["id"])
         except Exception as e:
             email_message.email_errored(str(e))
+
+class PendingEmails(Aggregate):
+    originator_ids: Set[UUID]
+
+    @staticmethod
+    def create_id(**kwargs: Any) -> UUID:
+        return UUID("700753e6-37cb-4619-95af-010c4d2b366c")
+
+    ID = create_id()
+
+    @singledispatchmethod
+    def handle(self, event: AggregateEvent):
+        pass
+
+    @handle.register(EmailMessage.Initiated)
+    def handle_initiated(self, event: AggregateEvent):
+        self.originator_ids.append(event.originator_id)
+
+    @handle.register(EmailMessage.Sending)
+    def handle_sending(self, event: AggregateEvent):
+        self.originator_ids.append(event.originator_id)
+
+    @handle.register(EmailMessage.Sent)
+    def handle_sent(self, event: AggregateEvent):
+        self.originator_ids.remove(event.originator_id)
+
+    @handle.register(EmailMessage.Errored)
+    def handle_sent(self, event: AggregateEvent):
+        self.originator_ids.remove(event.originator_id)
+
+class PendingEmailsApp(ProcessApplication):
+    def policy(self, domain_event: AggregateEvent, process_event: ProcessEvent):
+        try:
+            pending_emails = self.repository.get(PendingEmails.ID)
+        except AggregateNotFound:
+            # TODO: Make this a set to maintain uniqueness (but need an Transcoder)
+            pending_emails = PendingEmails(originator_ids=list())
+
+        pending_emails.handle(domain_event)
+        process_event.collect_events(*pending_emails.collect_events())
 
 class EmailClient:
     def send_email(email_message: EmailMessage):
@@ -112,14 +155,15 @@ class EmailClient:
 def start_event_sourcing_system() -> Runner:
     import os
     environ = Environment()
-    environ["PERSISTENCE_MODULE"] = os.environ.get("EVENTSOURCING_PERSISTENCE_MODULE", "eventsourcing.sqlite")
-    # environ["PERSISTENCE_MODULE"] = "eventsourcing.popo"
-    environ["SQLITE_DBNAME"] = ":memory:"
+    environ["PERSISTENCE_MODULE"] = os.environ.get("EVENTSOURCING_PERSISTENCE_MODULE", "eventsourcing.popo")
+    # environ["PERSISTENCE_MODULE"] = "eventsourcing.sqlite"
+    environ["SQLITE_DBNAME"] = "file::memory:?mode=memory&cache=shared"
+    # environ["SQLITE_DBNAME"] = "file:application1?mode=memory&cache=shared"
     environ["SQLITE_LOCK_TIMEOUT"] = "10"
     environ["EMAIL_CLIENT"] = EmailClient()
 
     system = System([
-        [EmailApp, EmailApp],
+        [EmailApp, EmailApp, PendingEmailsApp],
     ])
     runner = MultiThreadedRunner(system=system, env=environ)
     runner.start()
