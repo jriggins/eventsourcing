@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from flask.testing import FlaskClient
 
-from app import EmailApp, Runner
+from app import EmailApp, PendingEmailsApp, PendingEmails, Runner
 
 # Uncomment to see the difference in behavior
 # import os
@@ -85,3 +85,48 @@ class TestWebApp:
             "status": "ERRORED",
             "error_message": "BOOM!!"
         } == response.json
+
+    @patch('app.EmailMessage.create_id')
+    def test_monitor(self, stub_create_email_message_id, test_client: FlaskClient, event_sourcing_runner: Runner):
+        """
+        Given a /email endpoint
+        When I POST a Send Email Message request to the endpoint
+        And the 3rd Party Email Service is still processing the message request
+        Then I receive a 202 Accepted response with a URL to retrieve the command's
+          status in the Location header
+        And the returned status from the endpoint is SENDING
+        And system records that there is one pending email message to process
+        """
+        # with patch('app.EmailMessage.create_id') as stub_create_email_message_id:
+        from uuid import UUID
+        stub_create_email_message_id.return_value = UUID("85ad5a4e-ff27-11ec-a0f1-0242ac140006")
+
+        email_client = event_sourcing_runner.get(EmailApp).env["EMAIL_CLIENT"]
+        email_client.get_send_email_status = lambda id: {
+            "status": "SENDING",
+        }
+
+        response = test_client.post('/email', json={
+            "to": "test_recipient@example.com",
+            "from_": "test_sender@example.com",
+            "subject": "Test Message",
+            "body": "This is only a test"
+        })
+        assert 202 == response.status_code
+        assert "/email/85ad5a4e-ff27-11ec-a0f1-0242ac140006" == response.headers['Location']
+
+        sleep(0.1)
+
+        response = test_client.get("/email/85ad5a4e-ff27-11ec-a0f1-0242ac140006")
+        assert 200 == response.status_code
+        assert {
+            "to": "test_recipient@example.com",
+            "from_": "test_sender@example.com",
+            "subject": "Test Message",
+            "body": "This is only a test",
+            "status": "SENDING"
+        } == response.json
+
+        pending_emails: PendingEmailsApp = event_sourcing_runner.get(PendingEmailsApp)
+        pending_emails: PendingEmails = pending_emails.repository.get(PendingEmails.ID)
+        assert pending_emails.originator_ids == [ UUID("85ad5a4e-ff27-11ec-a0f1-0242ac140006") ]
